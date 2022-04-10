@@ -33,14 +33,16 @@ HOMEWORK_STATUSES = {
 
 
 def send_message(bot, message):
-    '''Функция отсылает сообщение с помощью телеграм-бота в определённый чат.
-    '''
+    """Функция отсылает сообщение с помощью телеграм-бота
+    в определённый чат.
+    """
     bot.send_message(TELEGRAM_CHAT_ID, text=message)
 
 
 def get_api_answer(current_timestamp):
-    '''Функция запрашивает API данные и возвращает их тиризированными
-    в Python.'''
+    """Функция запрашивает API данные и возвращает их тиризированными
+    в Python.
+    """
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
     r = requests.get(ENDPOINT, headers=HEADERS, params=params)
@@ -52,13 +54,14 @@ def get_api_answer(current_timestamp):
 
 
 def check_response(response):
-    '''Функция проверяет:
+    """Функция проверяет:
     - есть ли обновление;
     - содержится ли словарь в response;
     - содержится ли в словаре по индексу homeworks список;
     - имеются ли в словаре индекс current_date и является значение
     целочисленным;
-    функция возвращает список домашних работ.'''
+    функция возвращает список домашних работ.
+    """
     if not isinstance(response['current_date'], int):
         raise TypeError('Метка времени не является целочисленной')
     if not isinstance(response, dict):
@@ -70,8 +73,9 @@ def check_response(response):
 
 
 def parse_status(homework):
-    '''Функция извлекает из входящих данных название домашней работы, её статус
-    и возвращает текстовую строку для последующей отсылки телеграм ботом.'''
+    """Функция извлекает из входящих данных название домашней работы, её статус
+    и возвращает текстовую строку для последующей отсылки телеграм ботом.
+    """
     homework_name = homework['homework_name']
     homework_status = homework['status']
     if homework_status not in HOMEWORK_STATUSES:
@@ -81,8 +85,9 @@ def parse_status(homework):
 
 
 def check_tokens():
-    '''Функция проверяет доступность переменных окружения, если нет
-    хотя бы одной переменной, то возращает False, иначе - True.'''
+    """Функция проверяет доступность переменных окружения, если нет
+    хотя бы одной переменной, то возращает False, иначе - True.
+    """
     if PRACTICUM_TOKEN and TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
         return True
     else:
