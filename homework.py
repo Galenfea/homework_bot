@@ -4,7 +4,6 @@ from logging.config import dictConfig
 import os
 import time
 
-
 from dotenv import load_dotenv
 import requests
 from telegram import Bot
@@ -14,7 +13,7 @@ from exceptions import APIError, EnvError
 from log_config import log_config
 
 load_dotenv()
-
+# По требованиям pytest в файле должны быть эти переменные
 PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
@@ -31,12 +30,38 @@ HOMEWORK_STATUSES = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 
+# Настройки логера и его объявление вынесены за пределы main() в связи с
+# требованием логировать то, что происходит внутри функций. В частности
+# добавить в логи информацию о том, какой именно токен недоступен в функции
+# check_tokens() или ввести страховочный код в send_message().
+# Во избежание странностей и для удобства настройки имя логера задано жёстко.
+dictConfig(log_config)
+logger = logging.getLogger('homework')
+
 
 def send_message(bot, message):
     """Функция отсылает сообщение с помощью телеграм-бота...
     в определённый чат.
     """
-    bot.send_message(TELEGRAM_CHAT_ID, text=message)
+    try:
+        bot.send_message(TELEGRAM_CHAT_ID, text=message)
+        logger.info('Сообщение успешно отправлено в телеграм')
+    except Unauthorized as error:
+        logger.error('Ошибка отправки телеграм-сообщения: '
+                     f'бот {error}'
+                     )
+    except BadRequest as error:
+        logger.error('Ошибка отправки '
+                     f'телеграм-сообщения: {error}'
+                     )
+    except TimedOut as error:
+        logger.error('Ошибка отправки '
+                     f'телеграм-сообщения: {error}'
+                     )
+    except Exception as error:
+        logger.error('Ошибка отправки '
+                     f'телеграм-сообщения: {error}'
+                     )
 
 
 def get_api_answer(current_timestamp):
@@ -45,12 +70,34 @@ def get_api_answer(current_timestamp):
     """
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
-    r = requests.get(ENDPOINT, headers=HEADERS, params=params)
-    if not r.status_code == 200:
-        raise APIError(f'не удалось получить сведения от {ENDPOINT}, '
-                       f'код ответа API: {r.status_code}'
-                       )
-    return r.json()
+    request_details = (
+        f'  URL: {ENDPOINT}\n'
+        f'  Параметры запроса: {params}\n'
+    )
+    try:
+        # Ситуация дисконекта и невозможности преобразования в json закрыта
+        response = requests.get(ENDPOINT, headers=HEADERS, params=params)
+        response_json = response.json()
+    except Exception as error:
+        logger.error(f'Ошибка соединения: {error}' + request_details)
+    else:
+        logger.debug('Соединение успешно')
+    # В дальнейшем response всегда будет доступен.
+    # Все детали сетевого запроса, а именно: URL и параметры
+    # Можно использовать response.__dict__, но вероятно нет смысла.
+    request_details = (
+        'ошибка АPI.\n' + request_details
+        + f'  код ответа: {response.status_code}\n'
+        f'  Ответ: {response_json}'
+    )
+    if not response:
+        raise APIError(request_details)
+    # Поиск ключей 'error' или 'code'
+    if ('error' in response_json):
+        raise requests.JSONDecodeError(request_details)
+    if ('code' in response_json):
+        raise requests.JSONDecodeError(request_details)
+    return response_json
 
 
 def check_response(response):
@@ -76,22 +123,42 @@ def parse_status(homework):
     """Функция извлекает из входящих данных название домашней работы, её статус...
     и возвращает текстовую строку для последующей отсылки телеграм ботом.
     """
-    homework_name = homework['homework_name']
-    homework_status = homework['status']
+    if not isinstance(homework, dict):
+        raise TypeError('Информация о домашнем задании - не слловарь: '
+                        f'{homework}'
+                        )
+    homework_name = homework.get('homework_name')
+    # При получении значения из словаря через get функция не должна упасть
+    homework_status = homework.get('status')
     if homework_status not in HOMEWORK_STATUSES:
-        raise KeyError('Получен незадокументированный статус работы')
+        raise KeyError('Получен незадокументированный статус работы: '
+                       f'{homework_status}'
+                       )
     verdict = HOMEWORK_STATUSES[homework_status]
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def check_tokens():
     """Функция проверяет доступность переменных окружения, если нет...
-    хотя бы одной переменной, то возращает False, иначе - True.
+    хотя бы одной переменной, то возращает False, иначе - True; логирует
+    на уровне critical каких именно переменных не хватает.
     """
-    if PRACTICUM_TOKEN and TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
-        return True
-    else:
-        return False
+    # Правильно было бы вынести это в начало файла, и свести все токены
+    # в словарь, а затем брать значения из словаря, но pytest требуют
+    # наличия переменных в которых будут токены.
+    TOKENS = {
+        'PRACTICUM_TOKEN': PRACTICUM_TOKEN,
+        'TELEGRAM_TOKEN': TELEGRAM_TOKEN,
+        'TELEGRAM_CHAT_ID': TELEGRAM_CHAT_ID,
+    }
+    # Можно перенести логирование в main(), но в ревью вопрос о логировании
+    # конкретной переменной, которой не хватает, был задан именно в теле
+    # функции check_tokens(), поэтому перенесено в функцию.
+    [logger.critical(f'Отсутствует переменная окружения: {token_name}')
+     for token_name, token in TOKENS.items() if token is None
+     ]
+    # Рефакторинг
+    return all(TOKENS.values())
 
 
 def main():
@@ -100,13 +167,10 @@ def main():
     повторяет действия спустя RETRY_TIME, логирует работу
     (настройки логирования) в log_config.py.
     """
-    dictConfig(log_config)
-    logger = logging.getLogger(__name__)
     logger.debug('Начало работы')
     if not check_tokens():
         logger.critical('Ошибка переменных окружения')
         raise EnvError('Ошибка переменных окружения')
-
     bot = Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
     errors_cache = -1
@@ -114,7 +178,6 @@ def main():
     while True:
         try:
             response = get_api_answer(current_timestamp)
-            logger.debug('Соединение успешно')
             homeworks = check_response(response)
             chek_time = datetime.datetime.fromtimestamp(current_timestamp)
             logger.debug('Метка времени: '
@@ -144,24 +207,15 @@ def main():
                 errors_cache = -1
             message = f'Сбой в работе программы: {error}'
             logger.error(message)
+        # Необходимый try-else, чтобы после того, как действия будут успешны,
+        # обнулить кэш ошибок.
+        else:
+            errors_cache = -1
 
         finally:
-            if not(message == NO_CHANGE_MESSAGE) and not (errors_cache > 0):
-                try:
-                    send_message(bot=bot, message=message)
-                    logger.info('Сообщение успешно отправлено в телеграм')
-                except Unauthorized as error:
-                    logger.error('Ошибка отправки телеграм-сообщения: '
-                                 f'бот {error}'
-                                 )
-                except BadRequest as error:
-                    logger.error('Ошибка отправки '
-                                 f'телеграм-сообщения: {error}'
-                                 )
-                except TimedOut as error:
-                    logger.error('Ошибка отправки '
-                                 f'телеграм-сообщения: {error}'
-                                 )
+            if (not(message == NO_CHANGE_MESSAGE) and (errors_cache <= 0)
+               and (len(message) < 5000)):
+                send_message(bot=bot, message=message)
             time.sleep(RETRY_TIME)
 
 

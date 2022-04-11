@@ -10,7 +10,7 @@ log_config = {
         },
     },
     'loggers': {
-        '__main__': {
+        'homework': {
             'handlers': ['homework_handler'],
             'level': 'DEBUG',
         }
