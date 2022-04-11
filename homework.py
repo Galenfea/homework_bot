@@ -1,4 +1,5 @@
 import datetime
+from http import HTTPStatus
 import logging
 from logging.config import dictConfig
 import os
@@ -71,8 +72,8 @@ def get_api_answer(current_timestamp):
     timestamp = current_timestamp or int(time.time())
     params = {'from_date': timestamp}
     request_details = (
-        f'  URL: {ENDPOINT}\n'
-        f'  Параметры запроса: {params}\n'
+        f'\n    URL: {ENDPOINT}\n'
+        f'    Параметры запроса: {params}\n'
     )
     try:
         # Ситуация дисконекта и невозможности преобразования в json закрыта
@@ -83,14 +84,15 @@ def get_api_answer(current_timestamp):
     else:
         logger.debug('Соединение успешно')
     # В дальнейшем response всегда будет доступен.
-    # Все детали сетевого запроса, а именно: URL и параметры
-    # Можно использовать response.__dict__, но вероятно нет смысла.
+    # Все детали сетевого запроса
     request_details = (
         'ошибка АPI.\n' + request_details
-        + f'  код ответа: {response.status_code}\n'
-        f'  Ответ: {response_json}'
+        + f'    код ответа: {response.status_code}\n'
+        f'    Ответ: {response_json}\n\n'
+        + f'    Все детали: {response.__dict__}'
     )
-    if not response:
+    # Применение raise
+    if response.status_code != HTTPStatus.OK:
         raise APIError(request_details)
     # Поиск ключей 'error' или 'code'
     if ('error' in response_json):
@@ -213,9 +215,8 @@ def main():
             errors_cache = -1
 
         finally:
-            if (not(message == NO_CHANGE_MESSAGE) and (errors_cache <= 0)
-               and (len(message) < 5000)):
-                send_message(bot=bot, message=message)
+            if (not(message == NO_CHANGE_MESSAGE) and (errors_cache <= 0)):
+                send_message(bot=bot, message=message[:430])
             time.sleep(RETRY_TIME)
 
 
